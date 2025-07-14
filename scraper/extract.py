@@ -8,8 +8,10 @@ from bs4 import BeautifulSoup
 import re
 from scraper.errors import NetworkError, DataExtractionError
 import tldextract
+import os
+from dotenv import load_dotenv
 
-HUNTER_API_KEY = "1d957682afa00e4040e2fd7f07b197ae17373002"  # For demo only; use env var in production
+load_dotenv()  # For demo only; use env var in production
 
 SOCIAL_PLATFORMS = [
     ("linkedin", "linkedin.com"),
@@ -65,7 +67,10 @@ def enrich_with_hunter(domain: str) -> dict:
     Returns:
         dict: Enriched data (company, industry, emails, etc.)
     """
-    url = f"https://api.hunter.io/v2/domain-search?domain={domain}&api_key={HUNTER_API_KEY}"
+    api_key = os.environ.get("HUNTER_API_KEY", "")
+    if not api_key:
+        return {}
+    url = f"https://api.hunter.io/v2/domain-search?domain={domain}&api_key={api_key}"
     try:
         resp = requests.get(url, timeout=10)
         if resp.status_code == 200:
