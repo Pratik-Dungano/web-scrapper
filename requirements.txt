@@ -3,3 +3,8 @@ beautifulsoup4
 pytest
 tldextract
 python-dotenv
+selenium
+webdriver-manager
+pyyaml
+tqdm
+flask

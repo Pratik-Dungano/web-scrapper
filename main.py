@@ -2,7 +2,7 @@
 main.py
 Entry point for the web scraper. Orchestrates input, extraction, and output.
 """
-from scraper import input, extract, output, errors, utils
+from scraper import input, extract, output, errors, utils, crawler
 
 def main():
     """
@@ -14,9 +14,14 @@ def main():
     5. Handle and log errors
     """
     try:
-        user_input = input.parse_args()
+        args = input.parse_args()
+        user_input = args['query'] if args['query'] else args['urls']
+        dynamic = args['dynamic']
+        paginate = args['paginate']
+        delay = args['delay']
+        proxies = utils.get_proxies(args['proxies']) if args['proxies'] else None
+        config = utils.load_config(args['config']) if args['config'] else None
         if isinstance(user_input, str):
-            # If a search query is provided, inform user and exit (no search implemented)
             utils.log_error("Search query input is not yet supported. Please provide URLs with --urls.")
             return
         urls = input.validate_urls(user_input)
@@ -24,7 +29,16 @@ def main():
         if not reachable_urls:
             utils.log_error("No reachable URLs provided.")
             return
-        results = extract.process_urls(reachable_urls)
+        # Pagination crawling
+        all_urls = []
+        if paginate:
+            for url in reachable_urls:
+                all_urls.extend(crawler.crawl_pagination(url))
+            # Remove duplicates
+            all_urls = list(dict.fromkeys(all_urls))
+        else:
+            all_urls = reachable_urls
+        results = extract.process_urls(all_urls, dynamic=dynamic, delay=delay, proxies=proxies, config=config)
         if not results:
             utils.log_error("No company information could be extracted from the provided URLs.")
             return

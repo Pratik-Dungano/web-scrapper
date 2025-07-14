@@ -1,0 +1,6 @@
+# Example config for custom extraction selectors/regex
+company_name_selector: "h1.company-title"
+email_selector: ".contact-email"
+phone_selector: ".contact-phone"
+email_regex: "[\\w.-]+@[\\w.-]+"
+phone_regex: "\\+?\\d[\\d\\s\\-()]{7,}\\d" 

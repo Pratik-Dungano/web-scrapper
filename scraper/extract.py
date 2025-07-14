@@ -10,6 +10,10 @@ from scraper.errors import NetworkError, DataExtractionError
 import tldextract
 import os
 from dotenv import load_dotenv
+from scraper.dynamic import fetch_dynamic_page
+from scraper import utils
+import time
+from tqdm import tqdm
 
 load_dotenv()  # For demo only; use env var in production
 
@@ -41,22 +45,29 @@ US_STATE_ABBR = {
 }
 
 
-def fetch_page(url: str) -> str:
+def fetch_page(url: str, dynamic: bool = False, proxy: str = None) -> str:
     """
-    Fetch the HTML content of a web page.
+    Fetch the HTML content of a web page, using requests or Selenium if dynamic.
     Args:
         url (str): The URL to fetch.
+        dynamic (bool): Whether to use dynamic fetching (Selenium).
+        proxy (str): Proxy URL to use for the request.
     Returns:
         str: HTML content of the page.
     Raises:
         NetworkError: If the page cannot be fetched.
     """
     try:
-        resp = requests.get(url, timeout=10)
+        if dynamic:
+            return fetch_dynamic_page(url)
+        proxies = {"http": proxy, "https": proxy} if proxy else None
+        resp = requests.get(url, timeout=10, proxies=proxies)
         resp.raise_for_status()
         return resp.text
     except requests.RequestException as e:
         raise NetworkError(f"Failed to fetch {url}: {e}")
+    except Exception as e:
+        raise NetworkError(f"Dynamic fetch failed for {url}: {e}")
 
 
 def enrich_with_hunter(domain: str) -> dict:
@@ -94,22 +105,19 @@ def enrich_with_hunter(domain: str) -> dict:
         return {}
 
 
-def extract_company_info(html: str, url: str) -> Dict[str, str]:
-    """
-    Extract company name, website, and contact info from HTML content.
-    Args:
-        html (str): HTML content of the page.
-        url (str): The URL of the page (for context).
-    Returns:
-        Dict[str, str]: Extracted information (company name, website, email, phone).
-    Raises:
-        DataExtractionError: If required data cannot be extracted.
-    """
+def extract_company_info(html: str, url: str, config: dict = None) -> Dict[str, str]:
+    config = config or {}
     soup = BeautifulSoup(html, 'html.parser')
     # Company name
     name = None
-    if soup.title and soup.title.string:
-        name = soup.title.string.strip()
+    name_selector = config.get('company_name_selector')
+    if name_selector:
+        el = soup.select_one(name_selector)
+        if el:
+            name = el.get_text(strip=True)
+    if not name:
+        if soup.title and soup.title.string:
+            name = soup.title.string.strip()
     if not name:
         og_site_name = soup.find('meta', property='og:site_name')
         if og_site_name and og_site_name.get('content'):
@@ -117,20 +125,34 @@ def extract_company_info(html: str, url: str) -> Dict[str, str]:
     website = url
     # Email
     email = None
-    mailtos = soup.select('a[href^=mailto]')
-    if mailtos:
-        email = mailtos[0]['href'].replace('mailto:', '').split('?')[0]
+    email_selector = config.get('email_selector')
+    if email_selector:
+        el = soup.select_one(email_selector)
+        if el:
+            email = el.get_text(strip=True)
     if not email:
-        match = re.search(r'[\w\.-]+@[\w\.-]+', html)
+        mailtos = soup.select('a[href^=mailto]')
+        if mailtos:
+            email = mailtos[0]['href'].replace('mailto:', '').split('?')[0]
+    if not email:
+        email_regex = config.get('email_regex', r'[\w\.-]+@[\w\.-]+')
+        match = re.search(email_regex, html)
         if match:
             email = match.group(0)
     # Phone
     phone = None
-    tels = soup.select('a[href^=tel]')
-    if tels:
-        phone = tels[0]['href'].replace('tel:', '').split('?')[0]
+    phone_selector = config.get('phone_selector')
+    if phone_selector:
+        el = soup.select_one(phone_selector)
+        if el:
+            phone = el.get_text(strip=True)
     if not phone:
-        match = re.search(r'\+?\d[\d\s\-()]{7,}\d', html)
+        tels = soup.select('a[href^=tel]')
+        if tels:
+            phone = tels[0]['href'].replace('tel:', '').split('?')[0]
+    if not phone:
+        phone_regex = config.get('phone_regex', r'\+?\d[\d\s\-()]{7,}\d')
+        match = re.search(phone_regex, html)
         if match:
             phone = match.group(0)
     # Social media profiles
@@ -244,21 +266,25 @@ def extract_company_info(html: str, url: str) -> Dict[str, str]:
     return result
 
 
-def process_urls(urls: List[str]) -> List[Dict[str, str]]:
-    """
-    Process a list of URLs: fetch each page and extract company info.
-    Args:
-        urls (List[str]): List of URLs to process.
-    Returns:
-        List[Dict[str, str]]: List of extracted company info dicts.
-    """
+def process_urls(urls: List[str], dynamic: bool = False, delay: list = [1.0, 3.0], proxies: list = None, config: dict = None) -> List[Dict[str, str]]:
     results = []
-    for url in urls:
+    proxy_list = proxies or []
+    proxy_idx = 0
+    errors = 0
+    utils.log_info(f"Processing {len(urls)} URLs...")
+    for url in tqdm(urls, desc="Scraping", unit="url"):
         try:
-            html = fetch_page(url)
-            info = extract_company_info(html, url)
+            proxy = proxy_list[proxy_idx % len(proxy_list)] if proxy_list else None
+            html = fetch_page(url, dynamic=dynamic, proxy=proxy)
+            info = extract_company_info(html, url, config=config)
             results.append(info)
+            utils.log_info(f"SUCCESS: {url}")
+            time.sleep(utils.get_delay(delay[0], delay[1]))
+            proxy_idx += 1
         except (NetworkError, DataExtractionError) as e:
-            # Could log or collect errors here if needed
+            errors += 1
+            utils.log_info(f"ERROR: {url} - {e}")
             continue
+    utils.log_info(f"Summary: {len(results)} successful, {errors} errors, {len(urls)} total.")
+    print(f"\nSummary: {len(results)} successful, {errors} errors, {len(urls)} total.")
     return results

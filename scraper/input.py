@@ -9,21 +9,31 @@ import requests
 from scraper.errors import InvalidURLError, URLUnreachableError
 
 
-def parse_args() -> Union[str, List[str]]:
+def parse_args() -> dict:
     """
-    Parse command-line arguments to get a search query or a list of seed URLs.
+    Parse command-line arguments to get a search query or a list of seed URLs and all flags.
     Returns:
-        str or List[str]: The search query or list of URLs provided by the user.
+        dict: {'query': str or None, 'urls': list or None, 'dynamic': bool, 'paginate': bool, 'delay': list, 'proxies': str or None, 'config': str or None}
     """
     parser = argparse.ArgumentParser(description="Web Scraper Input")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('--query', type=str, help='Search query to generate URLs')
     group.add_argument('--urls', nargs='+', help='List of seed URLs')
+    parser.add_argument('--dynamic', action='store_true', help='Enable dynamic content fetching (Selenium)')
+    parser.add_argument('--paginate', action='store_true', help='Enable pagination crawling')
+    parser.add_argument('--delay', nargs=2, type=float, metavar=('MIN', 'MAX'), default=[1.0, 3.0], help='Min and max delay (in seconds) between requests')
+    parser.add_argument('--proxies', type=str, help='Path to file containing list of proxies (one per line)')
+    parser.add_argument('--config', type=str, help='Path to YAML config file for custom selectors/regex')
     args = parser.parse_args()
-    if args.query:
-        return args.query
-    else:
-        return args.urls
+    return {
+        'query': args.query,
+        'urls': args.urls,
+        'dynamic': args.dynamic,
+        'paginate': args.paginate,
+        'delay': args.delay,
+        'proxies': args.proxies,
+        'config': args.config
+    }
 
 
 def validate_urls(urls: List[str]) -> List[str]:
